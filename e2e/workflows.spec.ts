@@ -1,0 +1,15 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+import{expect,test}from'@playwright/test';
+test.beforeEach(async({page})=>{await page.addInitScript(()=>localStorage.clear())});
+test('opens the command center',async({page})=>{await page.goto('/');await expect(page.getByRole('heading',{name:"MediaGrid command center"})).toBeVisible()});
+test('navigates to the connected operations workspace',async({page})=>{await page.goto('/');await page.getByRole('link',{name:'Operations'}).click();await expect(page.getByText(/LIVE WORKSPACE/)).toBeVisible()});
+test('renders derived analytics',async({page})=>{await page.goto('/analytics');await expect(page.getByRole('heading',{name:'Operational analytics'})).toBeVisible()});
+test("Run-of-show sequence route is operational",async({page})=>{await page.goto('/run-of-show');await expect(page.getByRole('heading',{name:"Run-of-show sequence"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test("Studio capacity route is operational",async({page})=>{await page.goto('/studio-booking');await expect(page.getByRole('heading',{name:"Studio capacity"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test("Media rights clearance route is operational",async({page})=>{await page.goto('/rights-clearance');await expect(page.getByRole('heading',{name:"Media rights clearance"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test("Transmission signal freshness route is operational",async({page})=>{await page.goto('/transmission-health');await expect(page.getByRole('heading',{name:"Transmission signal freshness"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test("Broadcast loudness limits route is operational",async({page})=>{await page.goto('/loudness-control');await expect(page.getByRole('heading',{name:"Broadcast loudness limits"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test("Crew call window route is operational",async({page})=>{await page.goto('/crew-call');await expect(page.getByRole('heading',{name:"Crew call window"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test("Render capacity reserve route is operational",async({page})=>{await page.goto('/render-farm');await expect(page.getByRole('heading',{name:"Render capacity reserve"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test("Editorial approval qualification route is operational",async({page})=>{await page.goto('/editorial-approval');await expect(page.getByRole('heading',{name:"Editorial approval qualification"})).toBeVisible();await expect(page.getByText(/revision 1/).first()).toBeVisible()})
+test('retains keyboard-visible product navigation',async({page})=>{await page.goto('/');await page.keyboard.press('Tab');await expect(page.locator(':focus')).toBeVisible()});
