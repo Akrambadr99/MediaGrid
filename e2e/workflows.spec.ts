@@ -21,3 +21,6 @@ test('Delivery graph evidence 4',async({page})=>{await page.goto('/productions/P
 
 
 test('Release command restores and recovers domain state',async({page})=>{await page.goto('/productions/PROD-77/releases/STREAM-EU?territory=DE&focus=VER-v12');await expect(page.getByRole('heading',{name:"Territorial release command",exact:true})).toBeVisible();await page.getByLabel('Authority').selectOption("rights approver");await page.getByRole('button',{name:'Run domain bulk action'}).click();await expect(page.getByRole('status')).toContainText('1 succeeded; 1 require recovery');await expect(page.getByRole('button',{name:'Retry failed records'})).toBeVisible()});
+
+
+test('Review comparison restores a feasible decision',async({page})=>{await page.goto('/productions/PROD-77/reviews/R12/compare?version=13');await expect(page.getByRole('heading',{name:"Review round and version comparison",exact:true})).toBeVisible();await expect(page.getByRole('region',{name:'Scenario result'})).toContainText(/Feasible|Blocked/);await expect(page.getByText("comment lineage",{exact:false}).first()).toBeVisible()});
