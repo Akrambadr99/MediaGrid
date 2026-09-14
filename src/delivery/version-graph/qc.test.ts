@@ -1,0 +1,1 @@
+import{describe,expect,it}from'vitest';import{qcLimit}from'./qc';describe('Delivery QC',()=>{it('allows values at the limit',()=>expect(qcLimit(5,5).allowed).toBe(true));it('computes breach size',()=>expect(qcLimit(8,5).breach).toBe(3));it('has no negative breach',()=>expect(qcLimit(2,5).breach).toBe(0));it('rejects negative limits',()=>expect(()=>qcLimit(1,-1)).toThrow())})
