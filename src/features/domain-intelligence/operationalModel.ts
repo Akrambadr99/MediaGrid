@@ -1,0 +1,5 @@
+export interface OperationalNode{id:string;label:string;capacity:number;demand:number;dependsOn:string[];effectiveFrom:string;effectiveTo:string;version:number}
+export const operationalNodes:OperationalNode[]=[{"id":"MG-1010","label":"Northern Light EU","capacity":11,"demand":7,"dependsOn":[],"effectiveFrom":"2026-09-01","effectiveTo":"2026-12-31","version":2},{"id":"MG-1017","label":"Harbor master swap","capacity":8,"demand":10,"dependsOn":["MG-1010"],"effectiveFrom":"2026-09-01","effectiveTo":"2026-09-20","version":3},{"id":"MG-1023","label":"Live Final clearance","capacity":7,"demand":12,"dependsOn":["MG-1017"],"effectiveFrom":"2026-09-18","effectiveTo":"2026-12-31","version":4},{"id":"MG-1029","label":"Morning Brief package","capacity":10,"demand":5,"dependsOn":["MG-1010"],"effectiveFrom":"2026-09-01","effectiveTo":"2026-12-31","version":5}];
+export const scenarioModes=["Rights conservative","Balanced release","Premiere priority"] as const;
+export const metricLabels=["Cleared territories","Delivery readiness","Blocked assets"] as const;
+export const domainCoefficient=3.9;export const secondaryWeight=17;export const riskWeight=9;
