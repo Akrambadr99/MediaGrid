@@ -30,3 +30,8 @@ test('premium shell is keyboard and mobile ready',async({page})=>{await page.set
 
 
 test('captures the premium desktop overview',async({page})=>{await page.setViewportSize({width:1440,height:1000});await page.goto('/');await expect(page.getByRole('heading',{name:'MediaGrid command center'})).toBeVisible();await page.screenshot({path:'../UI_SCREENSHOTS/MediaGrid-overview.png',fullPage:true})});
+
+
+test('command workbench supports deep links and keyboard navigation',async({page})=>{await page.goto('/command-workbench?case=MG-1017');await expect(page.getByRole('heading',{name:'Harbor Stories master swap'})).toBeVisible();const queue=page.getByRole('listbox',{name:'release exception queue'});await queue.focus();await page.keyboard.press('ArrowDown');await expect(page).toHaveURL(/case=MG-1023/)});
+
+test('command workbench preserves conflict context',async({page})=>{await page.goto('/command-workbench?case=MG-1017');await page.getByLabel('Authority').selectOption('approver');await page.getByLabel(/Decision note/).fill('Preserve this reviewed operational evidence');await page.getByRole('button',{name:'Approve delivery decision'}).click();await expect(page.getByRole('alert')).toContainText('Newer server version');await page.getByRole('button',{name:'Load latest version'}).click();await expect(page.getByLabel(/Decision note/)).toHaveValue('Preserve this reviewed operational evidence')});
