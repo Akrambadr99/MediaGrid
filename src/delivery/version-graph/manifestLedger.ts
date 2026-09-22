@@ -31,6 +31,7 @@ export interface RightsReview {
   manifestRevision: number
   requestedBy: string
   assignee: string
+  assigneeId?: string | null
   status: 'open' | 'stale' | 'completed' | 'superseded' | 'cancelled'
   supersedesId?: string
   outcome?: 'adopted' | 'changes_requested'
@@ -66,7 +67,7 @@ export function requestRightsReview(state: ManifestLedger, version: number, acto
   const revision = state.revision + 1
   const request: RightsReview = { id: `RIGHTS-${String(version)}-${String(revision)}`, assetId: state.manifest?.assetId ?? '',
     candidateVersion: version, rightsRevision: state.rightsRevision, manifestRevision: revision,
-    requestedBy: actor, assignee, status: 'open', ...(previous ? { supersedesId: previous.id } : {}) }
+    requestedBy: actor, assignee, assigneeId: null, status: 'open', ...(previous ? { supersedesId: previous.id } : {}) }
   return { ...state, revision, rightsReviews: [...(state.rightsReviews ?? []).map(item => item.id === previous?.id ?
     { ...item, status: 'superseded' as const } : item), request],
     history: [...state.history, { revision, action: 'rights-review-requested', assetId: request.assetId, actor }] }
@@ -94,13 +95,15 @@ export function rightsReviewPolicy(state: ManifestLedger, version: number, actor
   if (actor === state.manifestOwner) blockers.push('Manifest producer cannot approve their own delivery.')
   return { allowed: blockers.length === 0, blockers, queue: !state.manifest ? 'manifest' : reviewStaleReasons(state).length ? 'rights-recovery' : 'rights-review' }
 }
-export function adoptReviewedVersion(state: ManifestLedger, version: number, actor: string): ManifestLedger {
+export function adoptReviewedVersion(state: ManifestLedger, version: number, actor: string, reviewerId?: string): ManifestLedger {
   const blockers = rightsReviewPolicy(state, version, actor).blockers
   if (blockers.length) throw new Error(blockers[0])
   if (state.adoptedReviewVersion !== null) throw new Error('A review version is already adopted.')
   if (state.rightsReviews?.length && !rightsInbox(state, actor).some(item =>
     item.candidateVersion === version && item.rightsRevision === state.rightsRevision && item.manifestRevision === state.revision))
     throw new Error('A current rights request must be assigned to this approver.')
+  if (state.rightsReviews?.some(item => item.status === 'open' && item.assigneeId &&
+    item.assigneeId !== reviewerId)) throw new Error('Rights review belongs to another named approver.')
   return withEvent({ ...state, adoptedReviewVersion: version, reviewRightsRevision: state.rightsRevision, reviewApprover: actor,
     rightsReviews: state.rightsReviews?.map(item => item.status === 'open' ?
       { ...item, status: 'completed' as const, outcome: 'adopted' as const } : item) }, 'review-adopted', 'MASTER-v' + String(version), actor)
