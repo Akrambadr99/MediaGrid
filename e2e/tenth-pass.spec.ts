@@ -1,0 +1,21 @@
+import { expect, test } from '@playwright/test'
+
+test('rights revision stales a manifest and adopted review until reprocessing', async ({ page }) => {
+  await page.goto('/productions/PROD-77/delivery/STREAM-EU')
+  await page.getByLabel('Master version').selectOption('13')
+  await page.getByRole('button', { name: 'Create manifest' }).click()
+  await page.goto('/productions/PROD-77/reviews/R12/compare?version=13')
+  await page.getByLabel('Decision authority').selectOption('rights approver')
+  await page.getByRole('button', { name: 'Adopt reviewed version' }).click()
+  await page.goto('/productions/PROD-77/delivery/STREAM-EU')
+  await page.getByRole('button', { name: 'Invalidate rights grant' }).click()
+  await page.goto('/productions/PROD-77/reviews/R12/compare?version=13')
+  await expect(page.getByText('Adopted review is stale', { exact: false })).toBeVisible()
+  await page.goto('/productions/PROD-77/delivery/STREAM-EU')
+  await page.getByRole('button', { name: 'Restore rights grant' }).click()
+  await page.getByRole('button', { name: 'Reprocess manifest' }).click()
+  await page.goto('/productions/PROD-77/reviews/R12/compare?version=13')
+  await page.getByLabel('Decision authority').selectOption('rights approver')
+  await page.getByRole('button', { name: 'Revalidate adopted review' }).click()
+  await expect(page.getByText('Adopted review is stale', { exact: false })).toHaveCount(0)
+})

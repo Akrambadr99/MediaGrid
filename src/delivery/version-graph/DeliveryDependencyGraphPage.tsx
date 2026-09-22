@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { assetVersions, deliveryFindings, rightsGrants, target } from './deliveryManifest'
 import type { AssetVersion, DeliveryTarget } from './deliveryManifest'
-import { cancelManifest, readManifestLedger, recordManifest, saveManifestLedger } from './manifestLedger'
+import { cancelManifest, readManifestLedger, recordManifest, reprocessManifest, reviseRights, reviewStaleReasons, saveManifestLedger } from './manifestLedger'
 function requireDefaultAsset(): AssetVersion {
   const asset = assetVersions.find(item => item.version === 12)
   if (!asset) throw new Error('No delivery master is available.')
@@ -29,6 +29,14 @@ export function DeliveryDependencyGraphPage() {
     try { setLedger(saveManifestLedger(window.localStorage, cancelManifest(ledger))); setNotice('Delivery manifest cancelled.') }
     catch (error) { setNotice(error instanceof Error ? error.message : 'Cancellation failed.') }
   }
+  function changeRights() {
+    try { setLedger(saveManifestLedger(window.localStorage, reviseRights(ledger, !ledger.rightsValid))); setNotice('Rights revision recorded; manifest and review state recalculated.') }
+    catch (error) { setNotice(error instanceof Error ? error.message : 'Rights revision failed.') }
+  }
+  function reprocess() {
+    try { setLedger(saveManifestLedger(window.localStorage, reprocessManifest(ledger))); setNotice('Manifest reprocessed against current rights evidence.') }
+    catch (error) { setNotice(error instanceof Error ? error.message : 'Reprocessing failed.') }
+  }
   return <div className="suite-page">
     <header className="suite-title"><div><small>DELIVERY / VERSIONED DEPENDENCIES</small>
       <h1>Version, rights and delivery dependency graph</h1>
@@ -52,6 +60,10 @@ export function DeliveryDependencyGraphPage() {
       <h2>Release manifest</h2>
       <button disabled={findings.length > 0 || Boolean(manifest)} onClick={createManifest}>Create manifest</button>
       {manifest && <button onClick={cancel}>Cancel manifest</button>}
+      <button onClick={changeRights}>{ledger.rightsValid ? 'Invalidate rights grant' : 'Restore rights grant'}</button>
+      {manifest && ledger.rightsValid && manifest.rightsRevision !== ledger.rightsRevision && <button onClick={reprocess}>Reprocess manifest</button>}
+      <p>Rights revision {ledger.rightsRevision} · {ledger.rightsValid ? 'valid' : 'invalid'}</p>
+      {reviewStaleReasons(ledger).map(item => <p role="alert" key={item}>{item}</p>)}
       <p>Manifest revision {ledger.revision} · Review {ledger.adoptedReviewVersion === null ? 'pending' : 'v' + String(ledger.adoptedReviewVersion) + ' adopted'}</p>
       {manifest && <dl><dt>Master</dt><dd>{manifest.assetId}</dd><dt>Rights evidence</dt><dd>{manifest.rightsId}</dd>
         <dt>Target</dt><dd>{manifest.targetId}</dd></dl>}
