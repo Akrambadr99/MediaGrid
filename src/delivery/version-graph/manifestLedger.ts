@@ -17,11 +17,13 @@ export interface ManifestLedger {
   rightsRevision: number
   rightsValid: boolean
   reviewRightsRevision: number | null
+  manifestOwner: string
+  reviewApprover: string | null
   revision: number
-  history: readonly { revision: number; action: string; assetId: string }[]
+  history: readonly { revision: number; action: string; assetId: string; actor?: string }[]
 }
 const key = 'mediagrid:production:PROD-77:delivery:v1'
-export const initialManifestLedger: ManifestLedger = { manifest: null, adoptedReviewVersion: null, rightsRevision: 0, rightsValid: true, reviewRightsRevision: null, revision: 0, history: [] }
+export const initialManifestLedger: ManifestLedger = { manifest: null, adoptedReviewVersion: null, rightsRevision: 0, rightsValid: true, reviewRightsRevision: null, manifestOwner: 'delivery producer', reviewApprover: null, revision: 0, history: [] }
 export function readManifestLedger(storage: StoragePort): ManifestLedger {
   const raw = storage.getItem(key)
   if (!raw) return initialManifestLedger
@@ -31,16 +33,17 @@ export function readManifestLedger(storage: StoragePort): ManifestLedger {
     !('adoptedReviewVersion' in value) || (value.adoptedReviewVersion !== null && typeof value.adoptedReviewVersion !== 'number') ||
     !('revision' in value) || typeof value.revision !== 'number' ||
     !('history' in value) || !Array.isArray(value.history)) throw new Error('Invalid delivery-manifest record.')
-  const record = value as Omit<ManifestLedger, 'rightsRevision' | 'rightsValid' | 'reviewRightsRevision' | 'manifest'> &
-    Partial<Pick<ManifestLedger, 'rightsRevision' | 'rightsValid' | 'reviewRightsRevision'>> &
+  const record = value as Omit<ManifestLedger, 'rightsRevision' | 'rightsValid' | 'reviewRightsRevision' | 'manifest' | 'manifestOwner' | 'reviewApprover'> &
+    Partial<Pick<ManifestLedger, 'rightsRevision' | 'rightsValid' | 'reviewRightsRevision' | 'manifestOwner' | 'reviewApprover'>> &
     { manifest: (Omit<DeliveryManifest, 'rightsRevision'> & Partial<Pick<DeliveryManifest, 'rightsRevision'>>) | null }
   return { ...record, rightsRevision: record.rightsRevision ?? 0, rightsValid: record.rightsValid ?? true,
     reviewRightsRevision: record.reviewRightsRevision ?? (record.adoptedReviewVersion === null ? null : 0),
-    manifest: record.manifest ? { ...record.manifest, rightsRevision: record.manifest.rightsRevision ?? 0 } : null }
+    manifest: record.manifest ? { ...record.manifest, rightsRevision: record.manifest.rightsRevision ?? 0 } : null,
+    manifestOwner: record.manifestOwner ?? 'delivery producer', reviewApprover: record.reviewApprover ?? null }
 }
-function withEvent(state: ManifestLedger, action: string, assetId: string): ManifestLedger {
+function withEvent(state: ManifestLedger, action: string, assetId: string, actor?: string): ManifestLedger {
   const revision = state.revision + 1
-  return { ...state, revision, history: [...state.history, { revision, action, assetId }] }
+  return { ...state, revision, history: [...state.history, { revision, action, assetId, ...(actor ? { actor } : {}) }] }
 }
 export function recordManifest(state: ManifestLedger, asset: AssetVersion, target: DeliveryTarget, rights: readonly RightsGrant[]): ManifestLedger {
   if (state.manifest) throw new Error('A delivery manifest already exists.')
@@ -55,11 +58,17 @@ export function reviewBlockers(state: ManifestLedger, candidateVersion: number):
   if (state.manifest.assetId !== 'MASTER-v' + String(candidateVersion)) return ['Candidate version does not match the published delivery manifest.']
   return []
 }
-export function adoptReviewedVersion(state: ManifestLedger, version: number): ManifestLedger {
+export function rightsReviewPolicy(state: ManifestLedger, version: number, actor: string): { allowed: boolean; blockers: string[]; queue: 'manifest' | 'rights-review' | 'rights-recovery' } {
   const blockers = reviewBlockers(state, version)
+  if (actor !== 'rights approver') blockers.push('Only rights approval may adopt a published version.')
+  if (actor === state.manifestOwner) blockers.push('Manifest producer cannot approve their own delivery.')
+  return { allowed: blockers.length === 0, blockers, queue: !state.manifest ? 'manifest' : reviewStaleReasons(state).length ? 'rights-recovery' : 'rights-review' }
+}
+export function adoptReviewedVersion(state: ManifestLedger, version: number, actor: string): ManifestLedger {
+  const blockers = rightsReviewPolicy(state, version, actor).blockers
   if (blockers.length) throw new Error(blockers[0])
   if (state.adoptedReviewVersion !== null) throw new Error('A review version is already adopted.')
-  return withEvent({ ...state, adoptedReviewVersion: version, reviewRightsRevision: state.rightsRevision }, 'review-adopted', 'MASTER-v' + String(version))
+  return withEvent({ ...state, adoptedReviewVersion: version, reviewRightsRevision: state.rightsRevision, reviewApprover: actor }, 'review-adopted', 'MASTER-v' + String(version), actor)
 }
 export function reviewStaleReasons(state: ManifestLedger): string[] {
   return state.adoptedReviewVersion !== null &&
@@ -80,11 +89,12 @@ export function reprocessManifest(state: ManifestLedger): ManifestLedger {
   return withEvent({ ...state, manifest: { ...rebuilt, rightsRevision: state.rightsRevision } },
     'manifest-reprocessed', state.manifest.assetId)
 }
-export function revalidateReview(state: ManifestLedger): ManifestLedger {
+export function revalidateReview(state: ManifestLedger, actor: string): ManifestLedger {
   if (!reviewStaleReasons(state).length) throw new Error('No stale review adoption exists.')
   if (!state.manifest || !state.rightsValid || state.manifest.rightsRevision !== state.rightsRevision) throw new Error('Reprocess the manifest against current rights first.')
+  if (actor !== 'rights approver' || actor === state.manifestOwner) throw new Error('Independent rights approver authorization is required.')
   return withEvent({ ...state, reviewRightsRevision: state.rightsRevision },
-    'review-revalidated', state.manifest.assetId)
+    'review-revalidated', state.manifest.assetId, actor)
 }
 export function cancelManifest(state: ManifestLedger): ManifestLedger {
   if (!state.manifest) throw new Error('No manifest exists to cancel.')
