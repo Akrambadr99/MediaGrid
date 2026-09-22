@@ -19,11 +19,24 @@ export interface ManifestLedger {
   reviewRightsRevision: number | null
   manifestOwner: string
   reviewApprover: string | null
+  rightsReviews?: readonly RightsReview[] | undefined
   revision: number
   history: readonly { revision: number; action: string; assetId: string; actor?: string }[]
 }
+export interface RightsReview {
+  id: string
+  assetId: string
+  candidateVersion: number
+  rightsRevision: number
+  manifestRevision: number
+  requestedBy: string
+  assignee: string
+  status: 'open' | 'stale' | 'completed' | 'superseded' | 'cancelled'
+  supersedesId?: string
+  outcome?: 'adopted' | 'changes_requested'
+}
 const key = 'mediagrid:production:PROD-77:delivery:v1'
-export const initialManifestLedger: ManifestLedger = { manifest: null, adoptedReviewVersion: null, rightsRevision: 0, rightsValid: true, reviewRightsRevision: null, manifestOwner: 'delivery producer', reviewApprover: null, revision: 0, history: [] }
+export const initialManifestLedger: ManifestLedger = { manifest: null, adoptedReviewVersion: null, rightsRevision: 0, rightsValid: true, reviewRightsRevision: null, manifestOwner: 'delivery producer', reviewApprover: null, rightsReviews: [], revision: 0, history: [] }
 export function readManifestLedger(storage: StoragePort): ManifestLedger {
   const raw = storage.getItem(key)
   if (!raw) return initialManifestLedger
@@ -39,7 +52,24 @@ export function readManifestLedger(storage: StoragePort): ManifestLedger {
   return { ...record, rightsRevision: record.rightsRevision ?? 0, rightsValid: record.rightsValid ?? true,
     reviewRightsRevision: record.reviewRightsRevision ?? (record.adoptedReviewVersion === null ? null : 0),
     manifest: record.manifest ? { ...record.manifest, rightsRevision: record.manifest.rightsRevision ?? 0 } : null,
-    manifestOwner: record.manifestOwner ?? 'delivery producer', reviewApprover: record.reviewApprover ?? null }
+    manifestOwner: record.manifestOwner ?? 'delivery producer', reviewApprover: record.reviewApprover ?? null,
+    rightsReviews: record.rightsReviews ?? [] }
+}
+export function rightsInbox(state: ManifestLedger, actor: string): RightsReview[] {
+  return (state.rightsReviews ?? []).filter(item => item.assignee === actor && item.status === 'open')
+}
+export function requestRightsReview(state: ManifestLedger, version: number, actor: string, assignee = 'rights approver'): ManifestLedger {
+  if (actor !== state.manifestOwner || assignee !== 'rights approver' || actor === assignee) throw new Error('Manifest producer must hand off to independent rights approval.')
+  if (reviewBlockers(state, version).length || state.adoptedReviewVersion !== null) throw new Error('A current rights-cleared manifest is required.')
+  if (state.rightsReviews?.some(item => item.status === 'open')) throw new Error('A rights review is already open.')
+  const previous = [...(state.rightsReviews ?? [])].reverse().find(item => item.status === 'stale')
+  const revision = state.revision + 1
+  const request: RightsReview = { id: `RIGHTS-${String(version)}-${String(revision)}`, assetId: state.manifest?.assetId ?? '',
+    candidateVersion: version, rightsRevision: state.rightsRevision, manifestRevision: revision,
+    requestedBy: actor, assignee, status: 'open', ...(previous ? { supersedesId: previous.id } : {}) }
+  return { ...state, revision, rightsReviews: [...(state.rightsReviews ?? []).map(item => item.id === previous?.id ?
+    { ...item, status: 'superseded' as const } : item), request],
+    history: [...state.history, { revision, action: 'rights-review-requested', assetId: request.assetId, actor }] }
 }
 function withEvent(state: ManifestLedger, action: string, assetId: string, actor?: string): ManifestLedger {
   const revision = state.revision + 1
@@ -68,7 +98,12 @@ export function adoptReviewedVersion(state: ManifestLedger, version: number, act
   const blockers = rightsReviewPolicy(state, version, actor).blockers
   if (blockers.length) throw new Error(blockers[0])
   if (state.adoptedReviewVersion !== null) throw new Error('A review version is already adopted.')
-  return withEvent({ ...state, adoptedReviewVersion: version, reviewRightsRevision: state.rightsRevision, reviewApprover: actor }, 'review-adopted', 'MASTER-v' + String(version), actor)
+  if (state.rightsReviews?.length && !rightsInbox(state, actor).some(item =>
+    item.candidateVersion === version && item.rightsRevision === state.rightsRevision && item.manifestRevision === state.revision))
+    throw new Error('A current rights request must be assigned to this approver.')
+  return withEvent({ ...state, adoptedReviewVersion: version, reviewRightsRevision: state.rightsRevision, reviewApprover: actor,
+    rightsReviews: state.rightsReviews?.map(item => item.status === 'open' ?
+      { ...item, status: 'completed' as const, outcome: 'adopted' as const } : item) }, 'review-adopted', 'MASTER-v' + String(version), actor)
 }
 export function reviewStaleReasons(state: ManifestLedger): string[] {
   return state.adoptedReviewVersion !== null &&
@@ -77,7 +112,9 @@ export function reviewStaleReasons(state: ManifestLedger): string[] {
 }
 export function reviseRights(state: ManifestLedger, valid: boolean): ManifestLedger {
   if (state.rightsValid === valid) throw new Error('Rights status has not changed.')
-  return withEvent({ ...state, rightsRevision: state.rightsRevision + 1, rightsValid: valid },
+  return withEvent({ ...state, rightsRevision: state.rightsRevision + 1, rightsValid: valid,
+    rightsReviews: state.rightsReviews?.map(item => item.status === 'open' ?
+      { ...item, status: 'stale' as const } : item) },
     valid ? 'rights-restored' : 'rights-invalidated', state.manifest?.assetId ?? 'PROD-77')
 }
 export function reprocessManifest(state: ManifestLedger): ManifestLedger {
@@ -86,7 +123,9 @@ export function reprocessManifest(state: ManifestLedger): ManifestLedger {
   const asset = assetVersions.find(item => item.id === state.manifest?.assetId)
   if (!asset || state.manifest.targetId !== target.id) throw new Error('Published asset or target is unavailable for reprocessing.')
   const rebuilt = buildManifest(asset, target, rightsGrants)
-  return withEvent({ ...state, manifest: { ...rebuilt, rightsRevision: state.rightsRevision } },
+  return withEvent({ ...state, manifest: { ...rebuilt, rightsRevision: state.rightsRevision },
+    rightsReviews: state.rightsReviews?.map(item => item.status === 'open' ?
+      { ...item, status: 'stale' as const } : item) },
     'manifest-reprocessed', state.manifest.assetId)
 }
 export function revalidateReview(state: ManifestLedger, actor: string): ManifestLedger {
@@ -99,7 +138,8 @@ export function revalidateReview(state: ManifestLedger, actor: string): Manifest
 export function cancelManifest(state: ManifestLedger): ManifestLedger {
   if (!state.manifest) throw new Error('No manifest exists to cancel.')
   if (state.adoptedReviewVersion !== null) throw new Error('Adopted review depends on this delivery manifest.')
-  return withEvent({ ...state, manifest: null }, 'manifest-cancelled', state.manifest.assetId)
+  return withEvent({ ...state, manifest: null, rightsReviews: state.rightsReviews?.map(item => item.status === 'open' ?
+    { ...item, status: 'cancelled' as const } : item) }, 'manifest-cancelled', state.manifest.assetId)
 }
 export function saveManifestLedger(storage: StoragePort, state: ManifestLedger): ManifestLedger {
   storage.setItem(key, JSON.stringify(state))
