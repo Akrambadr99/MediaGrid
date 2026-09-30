@@ -1,3 +1,6 @@
+import { recordDetailPath, recordDecisionPath } from './recordLinks'
+import { Link } from 'react-router-dom'
+import { saveCurrentCollection } from '../../workspace/recordStorage'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { rightsReviewers } from './rightsWorkload'
@@ -20,10 +23,10 @@ export function ProductionCollectionPage() {
   const inbox = productionRightsInbox(collection)
   const summary = productionSummary(collection)
   function choose(id: string) { setParams(current => { const next = new URLSearchParams(current); next.set('production', id); return next }) }
-  function persist(next: typeof collection, message: string) { setCollection(saveProductionCollection(window.localStorage, next)); setNotice(message) }
+  function persist(next: typeof collection, message: string) { try { setCollection(saveCurrentCollection(window.localStorage, collection, next, readProductionCollection, saveProductionCollection)); setNotice(message); return true } catch (error) { setNotice(error instanceof Error ? error.message : 'Save failed. Your input is preserved.'); return false } }
   function run(action: () => typeof collection, success: string) {
-    try { persist(action(), success) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'Production operation failed.') }
+    try { return persist(action(), success) }
+    catch (error) { setNotice(error instanceof Error ? error.message : 'Production operation failed.'); return false }
   }
   return <main className="suite-page">
     <header className="suite-title"><div><small>DELIVERY / RIGHTS RESPONSIBILITY</small><h1>Production rights workspace</h1>
@@ -60,7 +63,7 @@ export function ProductionCollectionPage() {
         const result = reprocessProductions(collection, checked)
         persist(result.collection, `${String(result.updated.length)} reprocessed; ${String(result.skipped.length)} current; ${String(result.blocked.length)} blocked.`)
       }}>Reprocess selected manifests</button>
-      <form onSubmit={event => { event.preventDefault(); run(() => createProduction(collection, newId, 'STREAM-EU', 'RG-EU-4'), 'Production created.'); setNewId('') }}>
+      <form onSubmit={event => { event.preventDefault(); if (run(() => createProduction(collection, newId, 'STREAM-EU', 'RG-EU-4'), 'Production created.')) setNewId('') }}>
         <label>New production ID <input value={newId} onChange={event => { setNewId(event.target.value) }} pattern="PROD-[0-9]+" required /></label>
         <button type="submit">Create EU production</button>
       </form>
@@ -88,6 +91,7 @@ export function ProductionCollectionPage() {
       <ol>{collection.events.toReversed().slice(0, 8).map(item => <li key={item.sequence}>
         {item.action} · {item.targetId} · related {item.relatedIds.join(', ') || 'none'} · {item.actor}
       </li>)}</ol></section>
+    <nav aria-label="Selected record workflows">{selected && !selected.archived && <><Link to={recordDetailPath(selected)}>Open record details</Link>{' · '}<Link to={recordDecisionPath(selected)}>Open decision workflow</Link></>} <button onClick={() => { try { setCollection(readProductionCollection(window.localStorage)); setNotice('Workspace refreshed; selection preserved.') } catch (error) { setNotice(error instanceof Error ? error.message : 'Refresh failed.') } }}>Refresh workspace</button></nav>
     <p role="status">{notice}</p>
   </main>
 }

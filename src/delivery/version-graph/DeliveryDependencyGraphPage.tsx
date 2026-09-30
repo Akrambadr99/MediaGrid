@@ -1,5 +1,7 @@
+import { readProductionCollection } from './productionCollection'
+import { SelectedRecordRoute } from './SelectedRecordRoute'
+import { useRecordContext } from '../../workspace/RecordScope'
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
 import { assetVersions, deliveryFindings, rightsGrants, target } from './deliveryManifest'
 import type { AssetVersion, DeliveryTarget } from './deliveryManifest'
 import { cancelManifest, readManifestLedger, recordManifest, reprocessManifest, reviseRights, reviewStaleReasons, saveManifestLedger } from './manifestLedger'
@@ -9,38 +11,44 @@ function requireDefaultAsset(): AssetVersion {
   return asset
 }
 const defaultAsset = requireDefaultAsset()
-export function DeliveryDependencyGraphPage() {
-  const { productionId, targetId } = useParams()
-  const [ledger, setLedger] = useState(() => readManifestLedger(window.localStorage))
+function RecordContent() {
+  const { storage, guard, recordId } = useRecordContext()
+
+  const [ledger, setLedger] = useState(() => readManifestLedger(storage))
   const [selectedVersion, setSelectedVersion] = useState(() => ledger.manifest ? Number(ledger.manifest.assetId.slice(8)) : 12)
-  const [delivery, setDelivery] = useState<DeliveryTarget>(target)
+  const [delivery, setDelivery] = useState<DeliveryTarget>(() => {
+    const record = readProductionCollection(storage).productions.find(item => item.id === recordId)
+    return record?.targetId === 'STREAM-US' ? { ...target, id: 'STREAM-US', territory: 'US' } : target
+  })
   const manifest = ledger.manifest
   const [notice, setNotice] = useState('')
   const asset = assetVersions.find(item => item.version === selectedVersion) ?? defaultAsset
   const findings = deliveryFindings(asset, delivery, rightsGrants)
+  const rightsCleared = ledger.rightsValid && rightsGrants.some(grant => grant.territory === delivery.territory &&
+    grant.platforms.includes(delivery.platform) && grant.from <= delivery.deliveryAt && delivery.deliveryAt < grant.until)
   function changeDelivery(next: DeliveryTarget) { setDelivery(next) }
   function createManifest() {
     try {
-      setLedger(saveManifestLedger(window.localStorage, recordManifest(ledger, asset, delivery, rightsGrants)))
+      setLedger(saveManifestLedger(storage, recordManifest(ledger, asset, delivery, rightsGrants)))
       setNotice('Delivery manifest locked to the selected evidence versions.')
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Manifest failed.') }
   }
   function cancel() {
-    try { setLedger(saveManifestLedger(window.localStorage, cancelManifest(ledger))); setNotice('Delivery manifest cancelled.') }
+    try { setLedger(saveManifestLedger(storage, cancelManifest(ledger))); setNotice('Delivery manifest cancelled.') }
     catch (error) { setNotice(error instanceof Error ? error.message : 'Cancellation failed.') }
   }
   function changeRights() {
-    try { setLedger(saveManifestLedger(window.localStorage, reviseRights(ledger, !ledger.rightsValid))); setNotice('Rights revision recorded; manifest and review state recalculated.') }
+    try { setLedger(saveManifestLedger(storage, reviseRights(ledger, !ledger.rightsValid))); setNotice('Rights revision recorded; manifest and review state recalculated.') }
     catch (error) { setNotice(error instanceof Error ? error.message : 'Rights revision failed.') }
   }
   function reprocess() {
-    try { setLedger(saveManifestLedger(window.localStorage, reprocessManifest(ledger))); setNotice('Manifest reprocessed against current rights evidence.') }
+    try { setLedger(saveManifestLedger(storage, reprocessManifest(ledger))); setNotice('Manifest reprocessed against current rights evidence.') }
     catch (error) { setNotice(error instanceof Error ? error.message : 'Reprocessing failed.') }
   }
   return <div className="suite-page">
     <header className="suite-title"><div><small>DELIVERY / VERSIONED DEPENDENCIES</small>
       <h1>Version, rights and delivery dependency graph</h1>
-      <p>Production {productionId ?? 'PROD-77'} · Target {targetId ?? target.id} · Rights cleared for the baseline EU window</p>
+      <p>Production {recordId} · Target {delivery.id} · {rightsCleared ? 'Rights cleared' : 'Rights blocked'} for the selected delivery window</p>
     </div></header>
     <section className="suite-card" aria-label="Delivery dependencies">
       <h2>Asset and target</h2>
@@ -58,10 +66,10 @@ export function DeliveryDependencyGraphPage() {
     </section>
     <section className="suite-card" aria-label="Manifest decision">
       <h2>Release manifest</h2>
-      <button disabled={findings.length > 0 || Boolean(manifest)} onClick={createManifest}>Create manifest</button>
-      {manifest && <button onClick={cancel}>Cancel manifest</button>}
-      <button onClick={changeRights}>{ledger.rightsValid ? 'Invalidate rights grant' : 'Restore rights grant'}</button>
-      {manifest && ledger.rightsValid && manifest.rightsRevision !== ledger.rightsRevision && <button onClick={reprocess}>Reprocess manifest</button>}
+      <button disabled={findings.length > 0 || Boolean(manifest)} onClick={guard(createManifest)}>Create manifest</button>
+      {manifest && <button onClick={guard(cancel)}>Cancel manifest</button>}
+      <button onClick={guard(changeRights)}>{ledger.rightsValid ? 'Invalidate rights grant' : 'Restore rights grant'}</button>
+      {manifest && ledger.rightsValid && manifest.rightsRevision !== ledger.rightsRevision && <button onClick={guard(reprocess)}>Reprocess manifest</button>}
       <p>Rights revision {ledger.rightsRevision} · {ledger.rightsValid ? 'valid' : 'invalid'}</p>
       {reviewStaleReasons(ledger).map(item => <p role="alert" key={item}>{item}</p>)}
       <p>Manifest revision {ledger.revision} · Review {ledger.adoptedReviewVersion === null ? 'pending' : 'v' + String(ledger.adoptedReviewVersion) + ' adopted'}</p>
@@ -71,3 +79,5 @@ export function DeliveryDependencyGraphPage() {
     </section>
   </div>
 }
+
+export function DeliveryDependencyGraphPage() { return <SelectedRecordRoute><RecordContent /></SelectedRecordRoute> }
