@@ -1,4 +1,6 @@
 import type { StoragePort } from '../../workspace/repository'
+import { readStored, writeStored } from '../../workspace/storageValidation'
+import { productionCollectionRule } from './collectionValidation'
 import { assetVersions, rightsGrants, target } from './deliveryManifest'
 import { initialManifestLedger, readManifestLedger, recordManifest, requestRightsReview,
   reviseRights, reprocessManifest } from './manifestLedger'
@@ -35,17 +37,11 @@ export function seedProductionCollection(legacy: ManifestLedger = initialManifes
   ], events: [] }
 }
 export function readProductionCollection(storage: StoragePort): ProductionCollection {
-  const raw = storage.getItem(key)
-  if (!raw) return seedProductionCollection(readManifestLedger(storage))
-  const value: unknown = JSON.parse(raw)
-  if (!value || typeof value !== 'object' || !('productions' in value) || !Array.isArray(value.productions) ||
-    !('grants' in value) || !Array.isArray(value.grants) || !('events' in value) || !Array.isArray(value.events))
-    throw new Error('Invalid production collection.')
-  return value as ProductionCollection
+  return readStored(storage, key, productionCollectionRule, () => seedProductionCollection(readManifestLedger(storage)),
+    'mediagrid:production:PROD-77:delivery:v1')
 }
 export function saveProductionCollection(storage: StoragePort, collection: ProductionCollection): ProductionCollection {
-  storage.setItem(key, JSON.stringify(collection))
-  return collection
+  return writeStored(storage, key, productionCollectionRule, collection)
 }
 export function productionById(collection: ProductionCollection, id: string): ProductionRecord {
   const record = collection.productions.find(item => item.id === id)

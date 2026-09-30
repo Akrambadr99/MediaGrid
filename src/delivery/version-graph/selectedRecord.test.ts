@@ -90,7 +90,7 @@ describe('selected production persistence', () => {
     const storage = new MemoryStorage(), bound = openSelectedRecord(storage)
     const changed = edit(readManifestLedger(bound))
     storage.fail = true
-    expect(() => saveManifestLedger(bound, changed)).toThrow('Storage full')
+    expect(() => saveManifestLedger(bound, changed)).toThrow('Browser storage rejected the save.')
     storage.fail = false
     saveManifestLedger(bound, changed)
     expect(readManifestLedger(openSelectedRecord(storage))).toEqual(changed)
