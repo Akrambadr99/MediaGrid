@@ -1,4 +1,4 @@
-import type { StoragePort } from '../../workspace/repository'
+import type { StoragePort, StorageReader } from '../../platform/storage-port'
 import { readStored, writeStored } from '../../workspace/storageValidation'
 import { productionCollectionRule } from './collectionValidation'
 import { assetVersions, rightsGrants, target } from './deliveryManifest'
@@ -36,7 +36,7 @@ export function seedProductionCollection(legacy: ManifestLedger = initialManifes
     { id: 'RG-US-3', revision: 1, valid: true, territory: 'US' },
   ], events: [] }
 }
-export function readProductionCollection(storage: StoragePort): ProductionCollection {
+export function readProductionCollection(storage: StorageReader): ProductionCollection {
   return readStored(storage, key, productionCollectionRule, () => seedProductionCollection(readManifestLedger(storage)),
     'mediagrid:production:PROD-77:delivery:v1')
 }

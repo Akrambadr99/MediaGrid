@@ -1,4 +1,4 @@
-import type { StoragePort } from '../../workspace/repository'
+import type { StoragePort, StorageReader } from '../../platform/storage-port'
 import { assetVersions, buildManifest, rightsGrants, target } from './deliveryManifest'
 import type { AssetVersion, DeliveryTarget, RightsGrant } from './deliveryManifest'
 
@@ -38,7 +38,7 @@ export interface RightsReview {
 }
 const key = 'mediagrid:production:PROD-77:delivery:v1'
 export const initialManifestLedger: ManifestLedger = { manifest: null, adoptedReviewVersion: null, rightsRevision: 0, rightsValid: true, reviewRightsRevision: null, manifestOwner: 'delivery producer', reviewApprover: null, rightsReviews: [], revision: 0, history: [] }
-export function readManifestLedger(storage: StoragePort): ManifestLedger {
+export function readManifestLedger(storage: StorageReader): ManifestLedger {
   const raw = storage.getItem(key)
   if (!raw) return initialManifestLedger
   const value: unknown = JSON.parse(raw)
