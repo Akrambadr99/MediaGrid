@@ -1,3 +1,7 @@
+import { productionTriage } from './collectionTriage'
+import { withCollectionView } from '../../workspace/collectionExplorer'
+import { useCollectionExplorer } from '../../workspace/useCollectionExplorer'
+import { ExplorerControls, ExplorerPagination, ExplorerSelection } from '../../workspace/CollectionExplorerControls'
 import { recordDetailPath, recordDecisionPath } from './recordLinks'
 import { Link } from 'react-router-dom'
 import { saveCurrentCollection } from '../../workspace/recordStorage'
@@ -5,23 +9,24 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { rightsReviewers } from './rightsWorkload'
 import { archiveProduction, claimProductionRights, createProduction, productionRightsInbox,
-  productionRows, productionSummary, readProductionCollection, reprocessProductions,
+  productionSummary, readProductionCollection, reprocessProductions,
   saveProductionCollection, setGrantValidity } from './productionCollection'
 
 export function ProductionCollectionPage() {
   const [collection, setCollection] = useState(() => readProductionCollection(window.localStorage))
   const [params, setParams] = useSearchParams()
-  const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState('active')
   const [reviewerId, setReviewerId] = useState('rights-maya')
   const [checked, setChecked] = useState<string[]>([])
   const [newId, setNewId] = useState('')
   const [notice, setNotice] = useState('')
   const selectedId = params.get('production') ?? 'PROD-78'
   const selected = collection.productions.find(item => item.id === selectedId)
-  const rows = productionRows(collection, query, filter)
   const inbox = productionRightsInbox(collection)
   const summary = productionSummary(collection)
+  const policy = productionTriage(collection)
+  const explorer = useCollectionExplorer(collection.productions, policy)
+  const rows = explorer.rows
+  const selectedOutsideView = selected && !rows.some(record => record.id === selected.id)
   function choose(id: string) { setParams(current => { const next = new URLSearchParams(current); next.set('production', id); return next }) }
   function persist(next: typeof collection, message: string) { try { setCollection(saveCurrentCollection(window.localStorage, collection, next, readProductionCollection, saveProductionCollection)); setNotice(message); return true } catch (error) { setNotice(error instanceof Error ? error.message : 'Save failed. Your input is preserved.'); return false } }
   function run(action: () => typeof collection, success: string) {
@@ -38,6 +43,7 @@ export function ProductionCollectionPage() {
       <article><small>Stale reviews</small><strong>{summary.stale}</strong></article>
     </section>
     <section className="suite-card" aria-label="Rights queue"><h2>Rights review queue</h2>
+      <p>This queue includes all active productions. Collection view filters apply only to the list below.</p>
       {inbox.length ? <ul>{inbox.map(item => <li key={item.productionId + item.requestId}>
         <button onClick={() => { choose(item.productionId) }}>{item.productionId}</button> · {item.targetId} ·
         {item.assigneeId ?? 'team queue'} · {item.status} · {item.actionable ? 'actionable' : 'blocked'}
@@ -47,10 +53,7 @@ export function ProductionCollectionPage() {
       </select></label>
     </section>
     <section className="suite-card" aria-label="Production collection"><h2>Productions</h2>
-      <div className="filters"><label>Search productions <input value={query} onChange={event => { setQuery(event.target.value) }} /></label>
-        <label>Show <select value={filter} onChange={event => { setFilter(event.target.value) }}>
-          <option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option>
-        </select></label></div>
+      <ExplorerControls noun="productions" view={explorer.view} onChange={explorer.setView} states={policy.states} onReset={explorer.reset} />
       {rows.length ? <ul>{rows.map(record => <li key={record.id}>
         <label><input type="checkbox" checked={checked.includes(record.id)} onChange={event => {
           setChecked(current => event.target.checked ? [...current, record.id] : current.filter(id => id !== record.id))
@@ -58,7 +61,10 @@ export function ProductionCollectionPage() {
         <button aria-current={selectedId === record.id ? 'true' : undefined} onClick={() => { choose(record.id) }}>
           {record.id} · {record.targetId} · {record.ledger.manifest ? 'published' : 'draft'}
         </button><small> r{record.ledger.revision} · {record.grantId}{record.archived ? ' · archived' : ''}</small>
-      </li>)}</ul> : <p>No productions match this view.</p>}
+      <small> · Work state: {policy.states.find(option => option.value === policy.state(record))?.label}</small></li>)}</ul> : <p>No productions match this view. Reset the view or adjust the search and work state.</p>}
+      <ExplorerPagination page={explorer.page} pageCount={explorer.pageCount} matchingCount={explorer.matchingCount}
+        onPageChange={page => { explorer.setView({ page }) }} />
+      <ExplorerSelection noun="productions" selected={checked} visible={rows.map(record => record.id)} onChange={setChecked} />
       <button disabled={!checked.length} onClick={() => {
         const result = reprocessProductions(collection, checked)
         persist(result.collection, `${String(result.updated.length)} reprocessed; ${String(result.skipped.length)} current; ${String(result.blocked.length)} blocked.`)
@@ -69,6 +75,9 @@ export function ProductionCollectionPage() {
       </form>
     </section>
     <section className="suite-card" aria-label="Selected production"><h2>{selected?.id ?? 'Select a production'}</h2>
+      {!selected && <p>The requested production was not found. Choose a record from the collection.</p>}
+      {selectedOutsideView && <p>The selected production is outside this page. Detail actions still apply to {selected.id}.{' '}
+        <button onClick={() => { explorer.setView({ query: selected.id, scope: 'all', state: 'all', sort: 'id-asc', page: 1 }) }}>Show selected record</button></p>}
       {selected && <><p>Delivery {selected.targetId} · Grant {selected.grantId} · Manifest revision {selected.ledger.revision}</p>
         <p>Asset {selected.ledger.manifest?.assetId ?? 'not published'} · Rights {selected.ledger.rightsValid ? 'valid' : 'invalid'} ·
           Review {selected.ledger.rightsReviews?.find(item => item.status === 'open')?.assigneeId ?? 'unclaimed'}</p>
@@ -91,7 +100,7 @@ export function ProductionCollectionPage() {
       <ol>{collection.events.toReversed().slice(0, 8).map(item => <li key={item.sequence}>
         {item.action} · {item.targetId} · related {item.relatedIds.join(', ') || 'none'} · {item.actor}
       </li>)}</ol></section>
-    <nav aria-label="Selected record workflows">{selected && !selected.archived && <><Link to={recordDetailPath(selected)}>Open record details</Link>{' · '}<Link to={recordDecisionPath(selected)}>Open decision workflow</Link></>} <button onClick={() => { try { setCollection(readProductionCollection(window.localStorage)); setNotice('Workspace refreshed; selection preserved.') } catch (error) { setNotice(error instanceof Error ? error.message : 'Refresh failed.') } }}>Refresh workspace</button></nav>
+    <nav aria-label="Selected record workflows">{selected && !selected.archived && <><Link to={withCollectionView(recordDetailPath(selected), params)}>Open record details</Link>{' · '}<Link to={withCollectionView(recordDecisionPath(selected), params)}>Open decision workflow</Link></>} <button onClick={() => { try { setCollection(readProductionCollection(window.localStorage)); setNotice('Workspace refreshed; selection preserved.') } catch (error) { setNotice(error instanceof Error ? error.message : 'Refresh failed.') } }}>Refresh workspace</button></nav>
     <p role="status">{notice}</p>
   </main>
 }
